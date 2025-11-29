@@ -1,0 +1,5 @@
+{
+  "name": "SecureRedact AI",
+  "description": "A privacy-focused tool using Gemini Flash (Small LLM) to automatically identify and redact sensitive PII from text files.",
+  "requestFramePermissions": []
+}

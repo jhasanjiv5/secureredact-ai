@@ -1,0 +1,6 @@
+/* stylelint-disable at-rule-no-unknown */
+/* This file uses Tailwind CSS directives; disable stylelint's at-rule-no-unknown rule for this file */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+@import "tailwindcss";
