@@ -1,6 +1,7 @@
 
 import React, { useState } from 'react';
-import { Copy, Check, Lock, Cloud, FileText } from 'lucide-react';
+import { Copy, Check, Lock, Cloud, FileText, AlertCircle } from 'lucide-react';
+import { ProcessingStatus } from '../types';
 
 interface ComparisonViewProps {
   originalText: string;
@@ -32,7 +33,20 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({ originalText, sa
   const renderContent = (text: string) => {
     if (!text) {
         if (activeTab === 'sanitized' && !sanitizedText) return <div className="text-slate-400 italic flex h-full items-center justify-center">Waiting for local sanitization...</div>;
-        if (activeTab === 'final' && !finalOutput) return <div className="text-slate-400 italic flex h-full items-center justify-center">Waiting for cloud processing...</div>;
+        
+        if (activeTab === 'final' && !finalOutput) {
+            if (status === ProcessingStatus.AWAITING_CLOUD_CONSENT) {
+                return (
+                    <div className="flex flex-col items-center justify-center h-full text-slate-500 max-w-md mx-auto text-center p-8">
+                        <AlertCircle className="w-10 h-10 text-amber-500 mb-4" />
+                        <h3 className="text-lg font-semibold text-slate-900 mb-2">Consent Required</h3>
+                        <p>Please review the <span className="font-semibold text-indigo-600">Local Sanitize</span> tab to ensure all PII is properly redacted.</p>
+                        <p className="mt-2">Once verified, click <span className="font-bold">"Proceed to Cloud Analysis"</span> in the toolbar to generate this report.</p>
+                    </div>
+                );
+            }
+            return <div className="text-slate-400 italic flex h-full items-center justify-center">Waiting for cloud processing...</div>;
+        }
         return null;
     }
 
@@ -69,14 +83,14 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({ originalText, sa
                 className={`flex-1 py-3 px-4 text-sm font-medium flex items-center justify-center space-x-2 transition-colors ${activeTab === 'sanitized' ? 'bg-white text-slate-900 border-t-2 border-t-green-500' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'}`}
             >
                 <Lock className="w-4 h-4" />
-                <span>Step 1: Sanitize</span>
+                <span>Step 1: Local Sanitize</span>
             </button>
             <button 
                 onClick={() => setActiveTab('final')}
                 className={`flex-1 py-3 px-4 text-sm font-medium flex items-center justify-center space-x-2 transition-colors ${activeTab === 'final' ? 'bg-white text-slate-900 border-t-2 border-t-blue-500' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'}`}
             >
                 <Cloud className="w-4 h-4" />
-                <span>Step 2:  Analysis</span>
+                <span>Step 2: Cloud Analysis</span>
             </button>
         </div>
 

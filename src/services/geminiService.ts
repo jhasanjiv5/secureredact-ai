@@ -11,6 +11,7 @@ Your job is to provide a concise, professional summary of the content.
 Input Context:
 - Text contains [REDACTED_TYPE] placeholders.
 - Focus on the non-sensitive business logic, events, or main topics.
+- The document might be quite long; provide a structured overview.
 `;
 
 /**
@@ -18,6 +19,7 @@ Input Context:
  */
 export const generateSummary = async (sanitizedText: string): Promise<string> => {
   try {
+    // Using gemini-2.5-flash-lite-latest for high context (1M tokens) and efficiency
     const response = await ai.models.generateContent({
       model: 'gemini-flash-lite-latest',
       contents: sanitizedText,
@@ -39,7 +41,8 @@ export const generateSummary = async (sanitizedText: string): Promise<string> =>
  * Simple regex helper for the client side statistics.
  */
 export const countRedactions = (text: string): number => {
-  const regex = /\[REDACTED_[A-Z]+\]/g;
+  // Matches: [REDACTED_XYZ] or [REDACTED_XYZ_123]
+  const regex = /\[REDACTED_[A-Z]+(?:_[0-9]+)?]/g;
   const matches = text.match(regex);
   return matches ? matches.length : 0;
 };
