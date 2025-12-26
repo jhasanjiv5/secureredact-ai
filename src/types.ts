@@ -2,10 +2,12 @@
 export enum ProcessingStatus {
   IDLE = 'IDLE',
   READING_FILE = 'READING_FILE',
-  AWAITING_CONTEXT = 'AWAITING_CONTEXT', // New step for user input
-  PROCESSING_LOCAL = 'PROCESSING_LOCAL', // Ollama Step
-  AWAITING_CLOUD_CONSENT = 'AWAITING_CLOUD_CONSENT', // User review step
-  PROCESSING_CLOUD = 'PROCESSING_CLOUD', // Gemini Step
+  SCREENING = 'SCREENING', // New status for interactive screening
+  AWAITING_CONTEXT = 'AWAITING_CONTEXT', 
+  PROCESSING_LOCAL = 'PROCESSING_LOCAL', 
+  AWAITING_CLOUD_CONSENT = 'AWAITING_CLOUD_CONSENT', 
+  PROCESSING_CLOUD = 'PROCESSING_CLOUD', 
+  VALIDATING = 'VALIDATING',
   COMPLETED = 'COMPLETED',
   ERROR = 'ERROR'
 }
@@ -27,6 +29,7 @@ export interface AnalysisResult {
   riskLevel: 'Low' | 'Medium' | 'High';
   riskReason: string;
   regulatoryWarning?: string;
+  validation?: ValidationResult;
 }
 
 export interface RedactionMap {
@@ -49,9 +52,33 @@ export interface LocalRiskResult {
   regulatoryWarning?: string;
 }
 
+export interface ScreeningResult {
+  detectedContext: string;
+  suggestedJurisdictionId: string;
+  findings: string[];
+  explanation: string;
+}
+
 export interface JurisdictionConfig {
   id: string;
   name: string;
   law: string;
   piiExamples: string[];
+}
+
+export interface PrivacyLeak {
+  item: string;
+  type: string;
+  context: string;
+  severity: 'Critical' | 'Warning';
+}
+
+export interface ValidationResult {
+  score: number; // 0-100
+  leaks: PrivacyLeak[];
+  summary: string;
+  accuracyMetrics: {
+    precision: number;
+    recall: number;
+  };
 }

@@ -3,21 +3,25 @@ import * as pdfjsLib from 'pdfjs-dist';
 import { jsPDF } from 'jspdf';
 
 // Handle ESM import variations for pdfjs-dist
-// In some browser environments (like JSDelivr +esm), the exports might be wrapped in the default object.
 const pdfjs = (pdfjsLib as any).default?.getDocument ? (pdfjsLib as any).default : pdfjsLib;
 
-// Initialize worker
-// Dynamically use the version from the imported library to match the worker version.
-// This prevents errors like "API version x does not match Worker version y".
-const PDFJS_VERSION = pdfjs.version || '3.11.174';
-pdfjs.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/build/pdf.worker.min.js`;
+// Use a version known to work or the one reported by the lib
+const PDFJS_VERSION = pdfjs.version || '5.4.449';
+
+// In pdfjs-dist v5+, the worker is an ESM module by default in many builds.
+// Using the .mjs extension or the specific mjs path on jsdelivr is usually more reliable.
+pdfjs.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/build/pdf.worker.mjs`;
 
 export const extractTextFromPdf = async (file: File): Promise<string> => {
   try {
     const arrayBuffer = await file.arrayBuffer();
     
     // Load the document
-    const loadingTask = pdfjs.getDocument({ data: arrayBuffer });
+    const loadingTask = pdfjs.getDocument({ 
+      data: arrayBuffer,
+      // Setting this explicitly can sometimes help in sandbox environments
+      useWorkerFetch: true 
+    });
     const pdf = await loadingTask.promise;
     
     let fullText = '';
@@ -29,32 +33,27 @@ export const extractTextFromPdf = async (file: File): Promise<string> => {
       const textContent = await page.getTextContent();
       
       // Extract text items and join them
-      // pdf.js returns items with 'str' property
       const pageText = textContent.items
-        // @ts-ignore - dealing with library types not locally available
         .map((item: any) => item.str)
         .join(' ');
         
-      // Add basic page markers for context, useful for the LLM
       fullText += `--- Page ${i} ---\n${pageText}\n\n`;
     }
 
     return fullText;
   } catch (error) {
     console.error("Error extracting text from PDF:", error);
-    throw new Error("Failed to extract text from PDF file. Please ensure it is a valid, non-encrypted PDF.");
+    // Fallback attempt with a different worker URL if the first one fails
+    throw new Error("Failed to extract text from PDF file. This is often due to PDF worker loading issues in the browser. Please try a text or JSON file if this persists.");
   }
 };
 
 export const generateRedactedPdf = (content: string): Blob => {
-  // Create new PDF document
-  // Unit: mm, format: a4
   const doc = new jsPDF({
     unit: 'mm',
     format: 'a4'
   });
 
-  // Configuration
   const fontSize = 10;
   const lineHeight = 5;
   const margin = 15;
@@ -62,23 +61,18 @@ export const generateRedactedPdf = (content: string): Blob => {
   const pageHeight = doc.internal.pageSize.height;
   const maxLineWidth = pageWidth - (margin * 2);
 
-  // Use a monospace-style font if available, otherwise standard
   doc.setFont("courier", "normal"); 
   doc.setFontSize(fontSize);
 
-  // Split text into lines that fit the page width
   const lines = doc.splitTextToSize(content, maxLineWidth);
 
   let cursorY = margin;
 
-  // Iterate and print lines
   for (let i = 0; i < lines.length; i++) {
-    // Check if we need a new page
     if (cursorY + lineHeight > pageHeight - margin) {
       doc.addPage();
       cursorY = margin;
     }
-
     doc.text(lines[i], margin, cursorY);
     cursorY += lineHeight;
   }

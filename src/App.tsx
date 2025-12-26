@@ -1,14 +1,16 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { Shield, RefreshCw, Download, FileText, Settings, Server, Cloud, ArrowRight, AlertTriangle, ExternalLink, ShieldCheck, ShieldAlert, FileSearch, Info, X, Scale, Key, Unlock, CheckCircle, Save } from 'lucide-react';
-import { ProcessingStatus, UploadedFile, RedactionStats, AnalysisResult, RedactionMap, JurisdictionConfig } from './types';
-import { generateSummary, countRedactions } from './services/geminiService';
+import { Shield, RefreshCw, Download, FileText, Settings, Server, Cloud, ArrowRight, AlertTriangle, ExternalLink, ShieldCheck, ShieldAlert, FileSearch, Info, X, Scale, Key, Unlock, CheckCircle, Save, HelpCircle, Activity, Lock, Bot } from 'lucide-react';
+import { ProcessingStatus, UploadedFile, RedactionStats, AnalysisResult, RedactionMap, JurisdictionConfig, ValidationResult, ScreeningResult } from './types';
+import { generateSummary, countRedactions, performPrivacyValidation } from './services/geminiService';
 import { extractTextFromPdf, generateRedactedPdf } from './services/pdfService';
-import { checkOllamaConnection, sanitizeWithOllama, assessRiskWithOllama, DEFAULT_OLLAMA_CONFIG, OllamaConfig } from './services/ollamaService';
+import { checkOllamaConnection, sanitizeWithOllama, assessRiskWithOllama, screenPrivacyRisks, DEFAULT_OLLAMA_CONFIG, OllamaConfig } from './services/ollamaService';
 import { UploadZone } from './components/UploadZone';
 import { ComparisonView } from './components/ComparisonView';
 import { Button } from './components/Button';
 import { ContextSelector } from './components/ContextSelector';
+import { Documentation } from './components/Documentation';
+import { PrivacyScreening } from './components/PrivacyScreening';
 
 const App: React.FC = () => {
   const [status, setStatus] = useState<ProcessingStatus>(ProcessingStatus.IDLE);
@@ -19,13 +21,15 @@ const App: React.FC = () => {
   const [sanitizedContent, setSanitizedContent] = useState<string>('');
   const [finalContent, setFinalContent] = useState<string>('');
   const [redactionMap, setRedactionMap] = useState<RedactionMap>({});
+  const [screeningResult, setScreeningResult] = useState<ScreeningResult | null>(null);
   
   const [stats, setStats] = useState<RedactionStats>({ originalLength: 0, redactedLength: 0, piiCount: 0 });
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [currentJurisdiction, setCurrentJurisdiction] = useState<JurisdictionConfig | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isMixedContent, setIsMixedContent] = useState(false);
   const [showRiskModal, setShowRiskModal] = useState(false);
+  const [showDocumentation, setShowDocumentation] = useState(false);
+  const [isOllamaError, setIsOllamaError] = useState(false);
   
   // Settings State
   const [showSettings, setShowSettings] = useState(false);
@@ -35,9 +39,6 @@ const App: React.FC = () => {
   const restoreInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (window.location.protocol === 'https:') {
-        setIsMixedContent(true);
-    }
     let mounted = true;
     checkOllamaConnection(ollamaConfig).then(connected => {
       if (mounted) setOllamaConnected(connected);
@@ -65,6 +66,8 @@ const App: React.FC = () => {
     setRedactionMap({});
     setAnalysisResult(null);
     setCurrentJurisdiction(null);
+    setScreeningResult(null);
+    setIsOllamaError(false);
     setStats({ originalLength: 0, redactedLength: 0, piiCount: 0 });
     setProgress({current: 0, total: 0});
 
@@ -87,7 +90,18 @@ const App: React.FC = () => {
           content: text,
           type: selectedFile.type
         });
-        setStatus(ProcessingStatus.AWAITING_CONTEXT);
+        
+        setStatus(ProcessingStatus.SCREENING);
+        try {
+            const result = await screenPrivacyRisks(text, ollamaConfig);
+            setScreeningResult(result);
+        } catch (err: any) {
+            if (err.message === "CONNECTION_FAILED") {
+                setIsOllamaError(true);
+            } else {
+                throw err;
+            }
+        }
       } else {
         throw new Error("File appears empty");
       }
@@ -95,7 +109,7 @@ const App: React.FC = () => {
       setError(err.message || "Failed to process file");
       setStatus(ProcessingStatus.ERROR);
     }
-  }, []);
+  }, [ollamaConfig]);
 
   const startLocalProcessing = async (context: string, jurisdiction: JurisdictionConfig) => {
     if (!file) return;
@@ -109,13 +123,12 @@ const App: React.FC = () => {
       const isConnected = await checkOllamaConnection(ollamaConfig);
       if (!isConnected) {
          setOllamaConnected(false);
-         setError("Connection Failed. Make sure Ollama is running and OLLAMA_ORIGINS='*' is set."); 
+         setError("Ollama connection lost. Please ensure the service is running with OLLAMA_ORIGINS='*' and try again."); 
          setStatus(ProcessingStatus.ERROR);
          return; 
       }
       setOllamaConnected(true);
 
-      // Perform Chunked Sanitization
       const localSanitizationResult = await sanitizeWithOllama(
         originalText, 
         ollamaConfig, 
@@ -124,7 +137,6 @@ const App: React.FC = () => {
         (curr, tot) => setProgress({ current: curr, total: tot })
       );
 
-      // Assess risk on document sample
       const localRisk = await assessRiskWithOllama(originalText, ollamaConfig, jurisdiction);
 
       const sanitizedText = localSanitizationResult.sanitizedText;
@@ -152,7 +164,7 @@ const App: React.FC = () => {
   };
 
   const handleCloudConsent = async (proceed: boolean) => {
-    if (!analysisResult || !currentJurisdiction) return;
+    if (!analysisResult || !currentJurisdiction || !file) return;
 
     if (!proceed) {
         const finalRep = formatFinalReport(analysisResult, "Cloud analysis skipped by user.", currentJurisdiction);
@@ -164,7 +176,11 @@ const App: React.FC = () => {
     try {
         setStatus(ProcessingStatus.PROCESSING_CLOUD);
         const summary = await generateSummary(sanitizedContent);
-        const updatedResult = { ...analysisResult, summary };
+        
+        setStatus(ProcessingStatus.VALIDATING);
+        const validation = await performPrivacyValidation(file.content, sanitizedContent);
+
+        const updatedResult = { ...analysisResult, summary, validation };
         setAnalysisResult(updatedResult);
         const finalRep = formatFinalReport(updatedResult, summary, currentJurisdiction);
         setFinalContent(finalRep);
@@ -234,6 +250,8 @@ const App: React.FC = () => {
     setRedactionMap({});
     setAnalysisResult(null);
     setCurrentJurisdiction(null);
+    setScreeningResult(null);
+    setIsOllamaError(false);
     setStatus(ProcessingStatus.IDLE);
     setError(null);
     setStats({ originalLength: 0, redactedLength: 0, piiCount: 0 });
@@ -312,13 +330,17 @@ const App: React.FC = () => {
   }
 
   const renderMainContent = () => {
-    if (status === ProcessingStatus.AWAITING_CONTEXT && file) {
+    if (status === ProcessingStatus.SCREENING && file) {
         return (
-            <div className="flex-1 flex flex-col items-center justify-center">
-                <ContextSelector 
-                    fileName={file.name}
-                    onConfirm={(context, jurisdiction) => startLocalProcessing(context, jurisdiction)}
-                    onCancel={handleReset}
+            <div className="flex-1 flex flex-col items-center justify-center py-12">
+                <PrivacyScreening 
+                  fileName={file.name}
+                  result={screeningResult}
+                  isLoading={!screeningResult && !isOllamaError}
+                  isConnectionError={isOllamaError}
+                  onConfirm={(context, jurisdiction) => startLocalProcessing(context, jurisdiction)}
+                  onCancel={handleReset}
+                  onRetry={() => handleFileSelect(file as any)}
                 />
             </div>
         );
@@ -328,27 +350,30 @@ const App: React.FC = () => {
          return (
              <div className="flex-1 flex flex-col items-center justify-center animate-fade-in">
              <div className="text-center mb-12 max-w-2xl">
-               <h2 className="text-4xl font-bold text-slate-900 mb-4">Privacy-First Analysis</h2>
-               <p className="text-lg text-slate-600 mb-8">
-                 <b>Step 1:</b> Redact PII locally using your offline Ollama ({ollamaConfig.model}).<br/>
-                 <b>Step 2:</b> Send sanitized data to Google Cloud for secure analysis.
+               <h2 className="text-4xl font-bold text-slate-900 mb-4 tracking-tight flex items-center justify-center">
+                 <Bot className="w-10 h-10 mr-3 text-indigo-600" />
+                 SecureRedact AI
+               </h2>
+               <p className="text-lg text-slate-600 mb-8 leading-relaxed">
+                 Professional data anonymization for <strong>high-stakes documentation</strong>. Redact PII locally using air-gapped models and validate privacy preservation with Gemini.
                </p>
                <div className="flex items-center justify-center space-x-8 mb-8 text-sm text-slate-400">
                     <div className="flex flex-col items-center">
                         <Server className="w-8 h-8 mb-2 text-slate-600" />
-                        <span>Local Analysis</span>
+                        <span className="font-medium">Ollama (Offline)</span>
                     </div>
                     <ArrowRight className="w-6 h-6" />
                     <div className="flex flex-col items-center">
-                        <Shield className="w-8 h-8 mb-2 text-indigo-600" />
-                        <span>Sanitized Data</span>
+                        <Activity className="w-8 h-8 mb-2 text-indigo-600" />
+                        <span className="font-medium">Sanitize</span>
                     </div>
                     <ArrowRight className="w-6 h-6" />
                     <div className="flex flex-col items-center">
-                        <Cloud className="w-8 h-8 mb-2 text-blue-600" />
-                        <span>Cloud Summary</span>
+                        <ShieldCheck className="w-8 h-8 mb-2 text-blue-600" />
+                        <span className="font-medium">Audit & Validate</span>
                     </div>
                </div>
+               <Button variant="ghost" onClick={() => setShowDocumentation(true)} icon={<HelpCircle className="w-4 h-4" />} className="mb-4">Enterprise Compliance Guide</Button>
              </div>
              <UploadZone onFileSelect={handleFileSelect} disabled={status === ProcessingStatus.READING_FILE} />
              {error && <div className="mt-4 p-4 bg-red-50 text-red-700 rounded-lg border border-red-200 text-sm font-medium">{error}</div>}
@@ -368,32 +393,32 @@ const App: React.FC = () => {
                   {status === ProcessingStatus.PROCESSING_LOCAL && (
                     <div className="flex items-center space-x-2 text-indigo-600 text-sm font-medium">
                       <RefreshCw className="w-4 h-4 animate-spin" />
-                      <span>Local Redaction (Chunk {progress.current} of {progress.total})...</span>
+                      <span>Local Anonymization (Chunk {progress.current} of {progress.total})...</span>
                     </div>
                   )}
 
                   {status === ProcessingStatus.AWAITING_CLOUD_CONSENT && (
-                     <div className="flex items-center space-x-2 text-amber-600 text-sm font-medium bg-amber-50 px-3 py-1.5 rounded-full border border-amber-200">
-                        <Shield className="w-4 h-4" />
-                        <span>Local Step Done. Cloud Consent Needed.</span>
+                     <div className="flex items-center space-x-2 text-amber-600 text-sm font-medium bg-amber-50 px-3 py-1.5 rounded-full border border-amber-200 shadow-sm animate-pulse">
+                        <Lock className="w-4 h-4" />
+                        <span>PII Redacted. Start Audit?</span>
                      </div>
                   )}
 
-                  {status === ProcessingStatus.PROCESSING_CLOUD && (
+                  {(status === ProcessingStatus.PROCESSING_CLOUD || status === ProcessingStatus.VALIDATING) && (
                     <div className="flex items-center space-x-2 text-blue-600 text-sm font-medium">
                       <RefreshCw className="w-4 h-4 animate-spin" />
-                      <span>Step 2: Cloud Analysis...</span>
+                      <span>{status === ProcessingStatus.VALIDATING ? 'Privacy Audit in Progress...' : 'Cloud Synthesis...'}</span>
                     </div>
                   )}
 
                   {status === ProcessingStatus.COMPLETED && (
                     <div className="flex items-center gap-3">
                         <div className="flex items-center space-x-2 text-slate-600 text-sm font-medium bg-slate-100 px-3 py-1.5 rounded-full">
-                            <span>PII Found: {stats.piiCount}</span>
+                            <span>{stats.piiCount} Redactions</span>
                         </div>
                          <button 
                             onClick={() => setShowRiskModal(true)}
-                            className={`flex items-center space-x-2 px-3 py-1.5 rounded-full border ${risk.color} text-sm font-medium transition-all`}
+                            className={`flex items-center space-x-2 px-3 py-1.5 rounded-full border ${risk.color} text-sm font-medium transition-all hover:scale-105 active:scale-95`}
                          >
                             <RiskIcon className="w-4 h-4" />
                             <span>{risk.text}</span>
@@ -410,21 +435,21 @@ const App: React.FC = () => {
                             onClick={handleDownloadSanitized}
                             icon={<Save className="w-4 h-4"/>}
                         >
-                            Download Sanitized
+                            Save Clean Copy
                         </Button>
                         <Button 
                             variant="secondary" 
                             onClick={() => handleCloudConsent(false)}
-                            icon={<CheckCircle className="w-4 h-4"/>}
+                            icon={<X className="w-4 h-4"/>}
                         >
-                            Skip Cloud
+                            Decline Audit
                         </Button>
                         <Button 
                             variant="primary" 
                             onClick={() => handleCloudConsent(true)}
-                            icon={<Cloud className="w-4 h-4"/>}
+                            icon={<ShieldCheck className="w-4 h-4"/>}
                         >
-                            Analyze with Cloud
+                            Run Audit & Analysis
                         </Button>
                     </>
                   )}
@@ -433,12 +458,12 @@ const App: React.FC = () => {
                     <>
                       <input type="file" ref={restoreInputRef} onChange={handleRestoreKeySelect} className="hidden" accept=".json" />
                       <Button variant="secondary" onClick={() => restoreInputRef.current?.click()} icon={<Unlock className="w-4 h-4"/>}>Restore</Button>
-                      <Button variant="secondary" onClick={handleExportKey} icon={<Key className="w-4 h-4"/>}>Export Key</Button>
-                      <Button variant="secondary" onClick={handleDownloadSanitized} icon={<Save className="w-4 h-4"/>}>Clean File</Button>
-                      <Button onClick={handleDownloadReportPdf} icon={<Download className="w-4 h-4"/>}>Save Report</Button>
+                      <Button variant="secondary" onClick={handleExportKey} icon={<Key className="w-4 h-4"/>}>Audit Log</Button>
+                      <Button variant="secondary" onClick={handleDownloadSanitized} icon={<Save className="w-4 h-4"/>}>Clean Data</Button>
+                      <Button onClick={handleDownloadReportPdf} icon={<Download className="w-4 h-4"/>}>Final Report</Button>
                     </>
                   )}
-                  <Button variant="secondary" onClick={handleReset} icon={<RefreshCw className="w-4 h-4"/>} className="ml-2">New</Button>
+                  <Button variant="secondary" onClick={handleReset} icon={<RefreshCw className="w-4 h-4"/>} className="ml-2">Reset</Button>
                </div>
             </div>
 
@@ -448,6 +473,7 @@ const App: React.FC = () => {
                 sanitizedText={sanitizedContent}
                 finalOutput={finalContent}
                 status={status}
+                validation={analysisResult?.validation}
               />
             </div>
           </div>
@@ -456,54 +482,76 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 font-sans">
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
+      <header className="bg-white border-b border-slate-200 sticky top-0 z-10 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <div className="p-2 bg-indigo-600 rounded-lg"><Shield className="w-6 h-6 text-white" /></div>
             <div>
               <h1 className="text-xl font-bold text-slate-900 tracking-tight">SecureRedact AI</h1>
-              <p className="text-xs text-slate-500">Local Privacy + Cloud Intelligence</p>
+              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Trust-Based Data Processing</p>
             </div>
           </div>
-          <Button variant="ghost" onClick={() => setShowSettings(!showSettings)} icon={<Settings className="w-4 h-4"/>}>Settings</Button>
+          <div className="flex items-center space-x-4">
+            <button 
+                onClick={() => setShowDocumentation(true)} 
+                className="text-slate-500 hover:text-indigo-600 transition-colors p-2 rounded-full hover:bg-slate-100"
+                title="System Documentation"
+            >
+                <HelpCircle className="w-5 h-5" />
+            </button>
+            <Button variant="ghost" onClick={() => setShowSettings(!showSettings)} icon={<Settings className="w-4 h-4"/>}>Config</Button>
+          </div>
         </div>
       </header>
 
       {showSettings && (
-        <div className="bg-slate-100 border-b border-slate-200 p-4">
+        <div className="bg-slate-100 border-b border-slate-200 p-4 animate-slide-down">
             <div className="max-w-7xl mx-auto flex flex-col sm:flex-row gap-4 items-end">
                 <div className="flex-1 w-full">
-                    <label className="block text-xs font-semibold text-slate-500 mb-1">Ollama URL</label>
-                    <input type="text" value={ollamaConfig.url} onChange={(e) => setOllamaConfig({...ollamaConfig, url: e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm" />
+                    <label className="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-tighter">Ollama Endpoint</label>
+                    <input type="text" value={ollamaConfig.url} onChange={(e) => setOllamaConfig({...ollamaConfig, url: e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm font-mono focus:ring-2 focus:ring-indigo-500" />
                 </div>
                 <div className="flex-1 w-full">
-                    <label className="block text-xs font-semibold text-slate-500 mb-1">Model</label>
-                    <input type="text" value={ollamaConfig.model} onChange={(e) => setOllamaConfig({...ollamaConfig, model: e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm" />
+                    <label className="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-tighter">Local Sanitizer Model</label>
+                    <input type="text" value={ollamaConfig.model} onChange={(e) => setOllamaConfig({...ollamaConfig, model: e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm font-mono focus:ring-2 focus:ring-indigo-500" />
                 </div>
-                <Button onClick={handleOllamaCheck} variant="secondary">Test</Button>
+                <Button onClick={handleOllamaCheck} variant="secondary">Test Connection</Button>
             </div>
         </div>
       )}
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 overflow-hidden flex flex-col relative">
         {renderMainContent()}
+        
+        {showDocumentation && <Documentation onClose={() => setShowDocumentation(false)} />}
+
         {showRiskModal && analysisResult && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
-                <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-200">
+                <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-200 animate-scale-in">
                     <div className={`${risk.headerBg} p-6 text-white flex justify-between items-start`}>
                         <div className="flex items-center space-x-3">
                             <RiskIcon className="w-6 h-6" />
-                            <h3 className="text-lg font-bold">Risk Assessment</h3>
+                            <h3 className="text-lg font-bold">Privacy Compliance Audit</h3>
                         </div>
-                        <button onClick={() => setShowRiskModal(false)}><X className="w-5 h-5" /></button>
+                        <button onClick={() => setShowRiskModal(false)} className="hover:rotate-90 transition-transform"><X className="w-5 h-5" /></button>
                     </div>
                     <div className="p-6 space-y-6">
-                        <p className="text-slate-900 font-medium">{analysisResult.riskReason}</p>
-                        <div className="bg-slate-50 p-4 rounded-lg border border-slate-100">
-                             <h4 className="text-xs font-bold uppercase mb-2">Legal Context</h4>
-                             <p className="text-slate-700 text-sm">{analysisResult.regulatoryWarning}</p>
+                        <p className="text-slate-900 font-medium leading-relaxed">{analysisResult.riskReason}</p>
+                        
+                        {analysisResult.validation && (
+                            <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200">
+                                <div className="text-sm font-bold text-slate-700">Audit Score: {analysisResult.validation.score}%</div>
+                                <div className={`text-xs font-bold uppercase ${analysisResult.validation.score >= 95 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                                    {analysisResult.validation.score >= 95 ? 'Certified Secure' : 'Manual Review Advised'}
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="bg-slate-50 p-4 rounded-lg border border-slate-100 shadow-inner">
+                             <h4 className="text-[10px] font-bold uppercase mb-2 text-slate-400 tracking-widest">Compliance Statement</h4>
+                             <p className="text-slate-700 text-sm italic">"{analysisResult.regulatoryWarning}"</p>
                         </div>
-                        <Button variant="secondary" onClick={() => setShowRiskModal(false)}>Close</Button>
+                        <Button variant="secondary" onClick={() => setShowRiskModal(false)} className="w-full">Close Report</Button>
                     </div>
                 </div>
             </div>
