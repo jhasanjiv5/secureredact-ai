@@ -7,9 +7,8 @@
     <title>SecureRedact AI</title>
     <!-- Using Tailwind CDN for simplicity in this hybrid setup, 
          though local installation via postcss is also supported by the package.json -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script type="module" src="/src/main.tsx"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
     <style>
       body {
         font-family: 'Inter', sans-serif;
@@ -64,6 +63,7 @@
 </head>
   <body class="bg-slate-50 text-slate-900 h-screen overflow-scroll custom-scrollbar">
     <div id="root" class="h-full w-full"></div>
-    <script type="module" src="/index.tsx"></script>
+    <!--<script type="module" src="/index.tsx"></script>-->
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -4,7 +4,7 @@ import { LocalRiskResult, OllamaConfig, RedactionMap, SanitizationResult, Jurisd
 export type { OllamaConfig, LocalRiskResult };
 
 export const DEFAULT_OLLAMA_CONFIG: OllamaConfig = {
-  url: 'http://localhost:11434',
+  url: 'http://ollama:11434/',
   model: 'gemma2'
 };
 
