@@ -3,6 +3,11 @@ from fastapi import FastAPI, APIRouter, HTTPException
 
 app = FastAPI()
 router = APIRouter()
+
+@app.get("/")
+async def root():
+    return {"message": "Hello World"}
+
 class RedactRequest(BaseModel):
     text: str
     redact_words: list[str]
