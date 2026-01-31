@@ -2,15 +2,74 @@
 
 **Prerequisites:**  Node.js
 
+````markdown
+# To Run Locally
+
+**Prerequisites:**  Node.js (for frontend) and Python 3.10+ (for the optional local API)
+
+Frontend (web UI)
 
 1. Install dependencies:
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key (if using Gemini features)
 3. Run the app:
    `npm run dev`
 
+Backend (optional Python FastAPI service)
 
-# Overview of the Redact AI's Working
+1. Create and activate a Python virtual environment:
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate
+   ```
+2. Install the (minimal) dependencies:
+   ```bash
+   pip install fastapi uvicorn pydantic python-multipart requests
+   ```
+3. Run the API server (module path):
+   ```bash
+   uvicorn src.api.redact_api_main:app --reload --host 0.0.0.0 --port 8000
+   ```
+
+
+# Usage Example
+
+Quick local workflow:
+
+- Start the frontend: `npm run dev` (open http://localhost:5173)
+- Optionally start the Python API: `uvicorn src.api.redact_api_main:app --reload --port 8000`
+- Upload a PDF in the UI and download the sanitized/exported artifacts.
+
+
+# Python API (FastAPI) — Endpoints & Examples
+
+The local API entrypoint is `src/api/redact_api_main.py`. Notable endpoints (all prefixed with `/api`):
+
+- `POST /api/upload/pdf` — Accepts `multipart/form-data` file (PDF). Returns extracted text as a downloadable `pdf_data.txt`.
+- `POST /api/download/report` — Accepts a plain text file and returns a generated summary as `summary.txt`.
+- `POST /api/sanitize` — Accepts a plain text file and returns a sanitized text file as `sanitized.txt`.
+- `GET /api/connection` — Checks Ollama connection (returns JSON connection status).
+- `GET /api/download/dictionary` — Returns a small JSON dictionary file.
+- `GET /api/download/risk-report` — Returns a JSON risk-report stub.
+
+Curl examples (replace `sample.pdf` / `sample.txt` with your file):
+
+```bash
+# Upload a PDF and save extracted text
+curl -F "file=@sample.pdf" http://localhost:8000/api/upload/pdf -o pdf_data.txt
+
+# Upload a plain-text file to get a summary
+curl -F "file=@sample.txt" http://localhost:8000/api/download/report -o summary.txt
+
+# Sanitize a plain-text file
+curl -F "file=@sample.txt" http://localhost:8000/api/sanitize -o sanitized.txt
+
+# Health check for Ollama connection
+curl http://localhost:8000/api/connection
+```
+
+
+## Overview of the Redact AI's Working
 
 **Interactive Data Anonymization Framework**
 
@@ -128,4 +187,6 @@ The Redact AI is designed to ensure:
 - Explicit consent for any cloud-based processing
 
 Understanding this model is required before proceeding with document processing.
+
+````
 
