@@ -14,12 +14,6 @@ class JurisdictionConfig(TypedDict):
     name: str
     law: str
 
-class RedactionMap(TypedDict):
-    # Dictionary mapping [REDACTED_TAG] to original value
-    # In Python, TypedDict doesn't support arbitrary keys well for this purpose, 
-    # so we usually just annotate as Dict[str, str] in functions.
-    pass
-
 class ScreeningResult(TypedDict):
     detectedContext: str
     suggestedJurisdictionId: str
@@ -46,7 +40,7 @@ CHUNK_SIZE_LIMIT = 12000
 
 # --- Helper Functions ---
 
-def generate_sanitize_prompt(context: str, jurisdiction: JurisdictionConfig, is_chunk: bool) -> str:
+def generate_sanitize_prompt(context: str, jurisdiction: JurisdictionConfig) -> str:
     """Generates the prompt string for sanitization."""
     return f"""
 You are a high-performance data privacy engine complying with {jurisdiction['name']} regulations ({jurisdiction['law']}).
@@ -60,7 +54,6 @@ INSTRUCTIONS:
 2. Replace PII with UNIQUE tags (e.g., [REDACTED_NAME_1]).
 3. STRUCTURAL INTEGRITY: If the input is JSON, CSV, or code, DO NOT change keys, headers, delimiters, or logic. Only replace the sensitive values.
 4. Return strictly valid JSON with the structure shown below.
-5. { "IMPORTANT: This is a segment of a larger file. Do not add any preamble or text outside the JSON block." if is_chunk else "" }
 
 JSON Schema:
 {{
@@ -153,53 +146,46 @@ def sanitize_with_ollama(
     Sanitizes text by sending chunks to Ollama.
     """
     base_url = config['url'].rstrip('/')
-    chunks = split_into_chunks(text, CHUNK_SIZE_LIMIT)
-    total_chunks = len(chunks)
-    
-    full_sanitized_text = ""
     master_map: Dict[str, str] = {}
-
-    for i, chunk in enumerate(chunks):
-        if on_progress:
-            on_progress(i + 1, total_chunks)
+    full_sanitized_text = ""
+    
+    try:
+        prompt = generate_sanitize_prompt(context, jurisdiction)
         
-        try:
-            prompt = generate_sanitize_prompt(context, jurisdiction, total_chunks > 1) + chunk
-            
-            payload = {
-                "model": config['model'],
-                "prompt": prompt,
-                "stream": False,
-                "format": "json",
-                "options": {
-                    "temperature": 0.1,
-                    "num_ctx": 32768
-                }
+        payload = {
+            "model": config['model'],
+            "prompt": prompt,
+            "stream": False,
+            "format": "json",
+            "options": {
+                "temperature": 0.1,
+                "num_ctx": 32768
             }
+        }
 
-            response = requests.post(f"{base_url}/api/generate", json=payload, timeout=300) # Longer timeout for processing
-            if not response.ok:
-                raise Exception(f"Ollama API error on chunk {i + 1}")
+        response = requests.post(f"{base_url}/api/generate", json=payload, timeout=300) # Longer timeout for processing
+        if not response.ok:
+            raise Exception(f"Ollama API error: {response.status_code} - {response.text}")
 
-            data = response.json()
-            json_content = data['response'].strip()
+        data = response.json()
+        json_content = data['response'].strip()
+        
+        # Basic JSON extraction (equivalent to finding braces)
+        first_brace = json_content.find('{')
+        last_brace = json_content.rfind('}')
+        if first_brace != -1 and last_brace != -1:
+            json_content = json_content[first_brace : last_brace + 1]
+
+        result = json.loads(json_content)
+        
+        full_sanitized_text += result.get("redactedText", "")
+        if "map" in result and result["map"]:
+            master_map.update(result["map"])
             
-            # Basic JSON extraction (equivalent to finding braces)
-            first_brace = json_content.find('{')
-            last_brace = json_content.rfind('}')
-            if first_brace != -1 and last_brace != -1:
-                json_content = json_content[first_brace : last_brace + 1]
-
-            result = json.loads(json_content)
-            
-            full_sanitized_text += result.get("redactedText", "")
-            if "map" in result and result["map"]:
-                master_map.update(result["map"])
-                
-        except Exception as err:
-            print(f"Chunk {i + 1} processing failed: {err}")
-            # Fallback: append original text if processing fails
-            full_sanitized_text += chunk
+    except Exception as err:
+        print(f"Text processing failed: {err}")
+        # Fallback: append original text if processing fails
+        
 
     return {
         "sanitizedText": full_sanitized_text,

@@ -15,12 +15,16 @@ class Config(BaseModel):
 
 class response(BaseModel):
     data: str
+    
+@app.get("/")
+async def root():
+    return {"message": "Redact API is running"}
 
 @app.get("/connection")
 async def ollama_connection():
    # Process file content
     content = check_ollama_connection(DEFAULT_OLLAMA_CONFIG)
-    return {"connection_status": content}
+    return {"connection status with Ollama": content}
 
 @app.post("/upload/pdf")
 async def upload_pdf(file: Annotated[UploadFile, File(description="Upload a PDF")]):
@@ -65,14 +69,14 @@ async def create_summary(file: Annotated[UploadFile, File(description="Upload a 
     )
 
 @app.post("/sanitize")
-async def sanitize(file: Annotated[UploadFile, File(description="Upload a PDF")]):
+async def sanitize(file: Annotated[UploadFile, File(description="Upload a text file")]):
     # Validate file type manually if needed
     if file.content_type != "text/plain":
         raise HTTPException(status_code=400, detail="File must be a plain text file")
     
     sanitized = sanitize_with_ollama(await file.read(), DEFAULT_OLLAMA_CONFIG, "General Text", {"name": "Global", "law": "General Privacy"})
              
-    content = "".join(sanitized["sanitizedTexts"])
+    content = sanitized["sanitizedText"]
     # Create data using Pydantic
     config = response(data=content)
     
