@@ -108,19 +108,25 @@ async def download_dictionary():
     )
 
 @app.get("/download/risk-report")
-async def download_risk_report():
+async def download_risk_report(uploaded_file: Annotated[UploadFile, File(description="Upload a text file")]):
+    if uploaded_file.content_type != "text/plain":
+        raise HTTPException(status_code=400, detail="File must be a plain text file")
+    
+    # Process file content
+    content = assess_risk_with_ollama(await uploaded_file.read(), DEFAULT_OLLAMA_CONFIG, {"name": "Global", "law": "General Privacy"})
     # Create data using Pydantic
-    config = Config(theme="dark", notifications=True)
+    config = response(data=content)
     
     # Dump Pydantic model to a JSON string, then to bytes
     json_data = config.model_dump_json()
-    stream = io.BytesIO(json_data.encode())
+    stream = io.BytesIO((json_data).encode())
     
     return StreamingResponse(
         stream, 
-        media_type="application/json", 
-        headers={"Content-Disposition": "attachment; filename=risk-report.json"}
+        media_type="text/plain", 
+        headers={"Content-Disposition": "attachment; filename=risk_report.txt"}
     )
+    
 app.include_router(router, prefix="/api")
 
 if __name__ == "__main__":
