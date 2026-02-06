@@ -94,6 +94,7 @@ async def sanitize(file: Annotated[UploadFile, File(description="Upload a text f
 
 @app.get("/download/dictionary")
 async def download_dictionary():
+    #TODO: Implement actual dictionary generation logic
     # Create data using Pydantic
     config = Config(theme="dark", notifications=True)
     
