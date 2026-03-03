@@ -23,7 +23,7 @@ jobs:
             pip install -r requirements.txt
         
         - name: Start Uvicorn & Run Tests
-          run: 
+          run: |
             uvicorn api.redact_api_main:app --reload --app-dir src   
             sleep 5
           env:
