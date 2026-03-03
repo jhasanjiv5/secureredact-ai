@@ -1,0 +1,19 @@
+name: Test API Workflow
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+    test:
+        runs-on: ubuntu-latest
+        steps:
+        - uses: actions/checkout@v3
+        - name: Start Uvicorn & Run Tests
+          run: 
+            uvicorn api.redact_api_main:app --reload --app-dir src   
+            sleep 5
+          env:
+            UVICORN_PORT: 8001
