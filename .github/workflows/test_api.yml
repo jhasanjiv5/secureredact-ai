@@ -23,8 +23,12 @@ jobs:
             pip install -r requirements.txt
         
         - name: Start Uvicorn & Run Tests
-          run: |
-            uvicorn api.redact_api_main:app --reload --app-dir src   
+          run: 
+            uvicorn api.redact_api_main:app --reload --app-dir src
+            UVI_PID=$!
             sleep 5
+            kill $UVI_PID || true
+            wait $UVI_PID || true
+          timeout-minutes: 5   
           env:
             UVICORN_PORT: 8001
