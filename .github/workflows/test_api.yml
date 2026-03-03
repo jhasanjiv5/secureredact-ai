@@ -24,11 +24,8 @@ jobs:
         
         - name: Start Uvicorn & Run Tests
           run: |
-            uvicorn api.redact_api_main:app --reload --app-dir src
-            UVI_PID=$!
-            sleep 5
-            kill $UVI_PID || true
-            wait $UVI_PID || true
-          timeout-minutes: 5   
+            timeout 30 uvicorn api.redact_api_main:app --reload --app-dir src
+            sleep 3
+          timeout-minutes: 2   
           env:
             UVICORN_PORT: 8001
