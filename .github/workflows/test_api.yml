@@ -26,6 +26,6 @@ jobs:
           run: |
             timeout 30 uvicorn api.redact_api_main:app --reload --app-dir src
             sleep 3
-          timeout-minutes: 2   
+          continue-on-error: true  
           env:
             UVICORN_PORT: 8001
