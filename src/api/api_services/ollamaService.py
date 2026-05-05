@@ -1,7 +1,7 @@
 import json
 import requests
 import re
-from typing import TypedDict, List, Dict, Optional, Callable, Any, Union
+from typing import TypedDict, List, Dict, Optional, Callable
 
 # --- Type Definitions ---
 # Equivalent to '../types' imports

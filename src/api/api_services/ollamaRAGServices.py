@@ -1,8 +1,7 @@
 import json
 from fastapi import HTTPException
 import requests
-import re
-from typing import TypedDict, List, Dict, Optional, Callable, Any, Union
+from typing import TypedDict, List, Dict, Optional
 from langchain_core.prompts import ChatPromptTemplate
 from src.api.api_services.pdfUtils import process_pdf_to_context
 from langchain_chroma import Chroma
@@ -74,7 +73,7 @@ async def upload_files(files):
             docs = process_pdf_to_context(file_data, file.filename)
             all_documents.extend(docs)
 
-            vector_db = Chroma.from_documents(
+            Chroma.from_documents(
             documents = all_documents, 
             embedding = EMBEDDINGS, 
             persist_directory = DB_DIR

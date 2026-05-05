@@ -1,12 +1,12 @@
 import io
 from pydantic import BaseModel
 from fastapi import FastAPI, APIRouter, HTTPException, UploadFile, File
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 from fastapi_mcp import FastApiMCP
 from typing import Annotated, List
-from src.api.api_services.geminiService import generate_summary, perform_privacy_validation
-from src.api.api_services.pdfUtils import extract_text_from_pdf, generate_redacted_pdf
-from src.api.api_services.ollamaService import split_into_chunks, check_ollama_connection, sanitize_with_ollama, assess_risk_with_ollama,count_redactions, DEFAULT_OLLAMA_CONFIG, JurisdictionConfig, OllamaConfig, LocalRiskResult
+from src.api.api_services.geminiService import generate_summary
+from src.api.api_services.pdfUtils import extract_text_from_pdf
+from src.api.api_services.ollamaService import check_ollama_connection, sanitize_with_ollama, assess_risk_with_ollama,DEFAULT_OLLAMA_CONFIG
 from src.api.api_services.ollamaRAGServices import screen_privacy_risks, upload_files
 
 app = FastAPI()
